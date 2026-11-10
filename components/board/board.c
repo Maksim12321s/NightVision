@@ -214,3 +214,18 @@ esp_err_t board_display_fill(uint16_t color){
         }
     return ESP_OK;
 }
+
+esp_err_t board_display_rect(int x, int y,int w,int h,uint16_t color){
+    if (w <= 0 || h <= 0 || x < 0 || y < 0 || x + w > LCD_H_RES || y + h > LCD_V_RES)
+        return ESP_ERR_INVALID_ARG;
+    uint16_t c = (color >> 8) | (color << 8);
+    if(w*h > LCD_H_RES*LCD_STRIP_LINES) return ESP_ERR_INVALID_SIZE;
+    for (int i = 0; i < w * h; ++i) {
+        s_strip_buf[i] = c;
+    }
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(s_panel, x, y, x + w, y + h, s_strip_buf),
+                        TAG,"rect draw failed");
+    xSemaphoreTake(s_trans_done, portMAX_DELAY);
+    return ESP_OK;
+    
+}

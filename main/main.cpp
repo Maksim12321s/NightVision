@@ -7,6 +7,8 @@
 #include "esp_heap_caps.h"
 #include "sdkconfig.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "board.h"
 #include "mlx90640.h"
@@ -119,5 +121,9 @@ extern "C" void app_main(void)
     #endif
 
     ESP_ERROR_CHECK(board_display_init());
-    ESP_ERROR_CHECK(board_display_fill(0xFF));
+    board_display_fill(0xF800); vTaskDelay(pdMS_TO_TICKS(1000));   // красный
+    board_display_fill(0x07E0); vTaskDelay(pdMS_TO_TICKS(1000));   // зелёный
+    board_display_fill(0x001F); vTaskDelay(pdMS_TO_TICKS(1000));   // синий
+    board_display_fill(0x0000);                                     // чёрный
+    board_display_rect(0, 0, 40, 40, 0xFFFF);                       // белый квадрат
 }
