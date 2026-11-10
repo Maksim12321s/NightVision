@@ -37,7 +37,10 @@ static esp_err_t camera_sensor_setup(void){
     if(s == NULL) return ESP_ERR_NOT_FOUND;
     uint16_t pid = s->id.PID;
     ESP_LOGI(TAG,"PID: 0x%04x", pid);
-    if(pid == OV3660_PID) return ESP_OK;
+    if(pid != OV3660_PID) {
+        ESP_LOGW(TAG,"camera not OV3660 PID=0x%04x");
+        return ESP_OK;
+    }
     if(s->set_vflip(s,1) != 0) ESP_LOGW(TAG, "vflip error in settings PID=0x%04x, OV3660 settings skipped", s->id.PID);
     if(s->set_brightness(s,1) != 0) ESP_LOGW(TAG, "brightness error in settings PID=0x%04x, OV3660 settings skipped", s->id.PID);
     if(s->set_saturation(s,-2) != 0) ESP_LOGW(TAG, "saturation error in settings PID=0x%04x, OV3660 settings skipped", s->id.PID);
@@ -86,7 +89,11 @@ esp_err_t board_camera_get_frame(board_frame_t *frame){
     if(frame == NULL) return ESP_ERR_INVALID_ARG;
     camera_fb_t* fb = esp_camera_fb_get();
     if(fb == NULL) return ESP_ERR_TIMEOUT;
-    if(fb->format != PIXFORMAT_RGB565) return ESP_ERR_INVALID_RESPONSE;
+    if(fb->format != PIXFORMAT_RGB565){
+        esp_camera_fb_return(fb);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+     
     frame->data = fb->buf;
     frame->height = fb->height;
     frame->width = fb->width;
@@ -98,9 +105,8 @@ esp_err_t board_camera_get_frame(board_frame_t *frame){
 
 //после освобождения кадром пользоваться нельзя, туда будет загружен следующий
 void board_camera_release_frame(board_frame_t *frame){
-    if(frame == NULL) return;
+    if(frame == NULL || frame->handle == NULL) return;
     esp_camera_fb_return(frame->handle);
+    frame->handle = NULL;
     frame->data = NULL;
-    frame = NULL;
-
 }
