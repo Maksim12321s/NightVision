@@ -12,7 +12,6 @@
 #include "thermal.h"
 #include "ui.h"
 
-
 static const char *TAG = "main";
 
 static void print_system_info(void)
@@ -54,5 +53,5 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(mlx_init());
     ESP_ERROR_CHECK(thermal_init());
     ESP_ERROR_CHECK(ui_init());
-
+    ESP_ERROR_CHECK(board_camera_init());
 }
