@@ -16,9 +16,14 @@ extern "C"{
 #endif
 
 esp_err_t board_init(void);
+
+
 esp_err_t board_camera_init(void);
 esp_err_t board_camera_get_frame(board_frame_t *frame);
 void board_camera_release_frame(board_frame_t *frame);
+
+esp_err_t board_display_init(void);
+esp_err_t board_display_fill(uint16_t color);
 
 #ifdef __cplusplus
 }

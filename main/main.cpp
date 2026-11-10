@@ -13,9 +13,7 @@
 #include "thermal.h"
 #include "ui.h"
 
- #define RUN_CAMERA_TEST 0
-
-
+#define RUN_CAMERA_TEST 0
 
 
 static const char *TAG = "main";
@@ -58,8 +56,10 @@ static void log_free_mem(const char *stage)
              heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024,
              heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) / 1024,
              heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
+
 }
 
+#if RUN_CAMERA_TEST
 static void camera_test(void){
      board_frame_t frame = {};
     const int N_frames = 1000;
@@ -98,6 +98,7 @@ static void camera_test(void){
     
     ESP_LOGI(TAG,"fps: %.1f",fps);
 }
+#endif
 
 extern "C" void app_main(void)
 {
@@ -108,14 +109,15 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(thermal_init());
     ESP_ERROR_CHECK(ui_init());
 
+    #if RUN_CAMERA_TEST
+    log_free_mem("before camera");
+    #endif
     ESP_ERROR_CHECK(board_camera_init());
+    #if RUN_CAMERA_TEST
+    log_free_mem("after camera");
+    camera_test_run();
+    #endif
 
-
-   
-
-
-   #if RUN_CAMERA_TEST
-   camera_test_run();
-   #endif
-
+    ESP_ERROR_CHECK(board_display_init());
+    ESP_ERROR_CHECK(board_display_fill(0xFF));
 }

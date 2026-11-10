@@ -4,6 +4,12 @@
 #include "esp_camera.h"
 #include "driver/gpio.h"
 #include "sensor.h"
+#include "driver/spi_master.h"
+#include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_ops.h"
+#include "esp_lcd_ili9341.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 
 static const char *TAG = "BOARD";
 
@@ -27,6 +33,28 @@ static const char *TAG = "BOARD";
 #define CAMERA_PIN_D6       GPIO_NUM_17
 #define CAMERA_PIN_D7       GPIO_NUM_16
 //=====================
+
+//======================
+//DISPLAY PINS
+//======================
+#define DISPLAY_PIN_CS      42
+#define DISPLAY_PIN_RESET   41
+#define DISPLAY_PIN_DC      40
+#define DISPLAY_PIN_MOSI    39
+#define DISPLAY_PIN_SCK     38
+
+#define LCD_H_RES        320     // ширина экрана в пикселях (в альбомной ориентации)
+#define LCD_V_RES        240     // высота экрана
+#define LCD_STRIP_LINES  40      // высота одной полосы в строках
+
+#define LCD_PIXEL_CLOCK_HZ  (10 * 1000 * 1000)
+//======================
+
+static esp_lcd_panel_handle_t s_panel = NULL;
+static SemaphoreHandle_t s_trans_done = NULL;
+static uint16_t *s_strip_buf;
+
+
 
 esp_err_t board_init(void){ 
     return ESP_OK; 
@@ -109,4 +137,78 @@ void board_camera_release_frame(board_frame_t *frame){
     esp_camera_fb_return(frame->handle);
     frame->handle = NULL;
     frame->data = NULL;
+}
+
+
+
+static bool lcd_trans_done_cb(esp_lcd_panel_io_handle_t io,
+                              esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
+{
+    BaseType_t woken = pdFALSE;
+    xSemaphoreGiveFromISR(s_trans_done, &woken);
+    return woken == pdTRUE;
+}
+
+
+
+esp_err_t board_display_init(void){
+    spi_bus_config_t bus_cfg = {
+        .mosi_io_num = DISPLAY_PIN_MOSI,
+        .sclk_io_num = DISPLAY_PIN_SCK,
+        .miso_io_num = -1,
+        .quadhd_io_num = -1,
+        .quadwp_io_num = -1,
+        .max_transfer_sz = LCD_H_RES * LCD_STRIP_LINES * 2,
+    };
+    ESP_RETURN_ON_ERROR(spi_bus_initialize(SPI2_HOST,&bus_cfg,SPI_DMA_CH_AUTO),
+                        TAG,"error in bus setup");
+
+    s_trans_done = xSemaphoreCreateBinary();
+    if (s_trans_done == NULL) return ESP_ERR_NO_MEM;
+    esp_lcd_panel_io_spi_config_t io_cfg = {
+        .cs_gpio_num = DISPLAY_PIN_CS,
+        .dc_gpio_num = DISPLAY_PIN_DC,
+        .spi_mode = 0,
+        .pclk_hz = LCD_PIXEL_CLOCK_HZ,
+        .trans_queue_depth = 10,
+        .lcd_cmd_bits = 8,
+        .lcd_param_bits = 8,
+        .user_ctx = NULL,
+        .on_color_trans_done = lcd_trans_done_cb,
+    };
+    esp_lcd_panel_io_handle_t io = NULL;
+    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST, &io_cfg, &io), 
+                        TAG, "panel io init failed");
+
+    esp_lcd_panel_dev_config_t panel_cfg = {
+        .reset_gpio_num = DISPLAY_PIN_RESET,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,
+        .bits_per_pixel = 16,
+    };
+    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_ili9341(io, &panel_cfg, &s_panel), 
+                        TAG, "panel create failed");
+
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(s_panel), TAG, "reset failed");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "init failed");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_swap_xy(s_panel, true), TAG, "swap_xy failed");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_panel, true, false), TAG, "mirror failed");
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(s_panel, true), TAG, "display on failed");
+
+    s_strip_buf = heap_caps_malloc(LCD_H_RES * LCD_STRIP_LINES * 2,
+                                    MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    return ESP_OK;
+}
+
+
+esp_err_t board_display_fill(uint16_t color){
+    
+       uint16_t c = (color >> 8) | (color << 8);   // переставить байты
+   for (int i = 0; i < LCD_H_RES * LCD_STRIP_LINES; ++i) {
+    s_strip_buf[i] = c;
+      for (int y = 0; y < LCD_V_RES; y += LCD_STRIP_LINES) {
+       ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(s_panel, 0, y, LCD_H_RES, y + LCD_STRIP_LINES, s_strip_buf),
+                           TAG, "draw failed");
+       xSemaphoreTake(s_trans_done, portMAX_DELAY);   // ждём, пока DMA отправит полосу
+   }
+   return ESP_OK;
 }
