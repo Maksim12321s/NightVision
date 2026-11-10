@@ -6,11 +6,17 @@
 #include "esp_psram.h"
 #include "esp_heap_caps.h"
 #include "sdkconfig.h"
+#include "esp_timer.h"
 
 #include "board.h"
 #include "mlx90640.h"
 #include "thermal.h"
 #include "ui.h"
+
+ #define RUN_CAMERA_TEST 0
+
+
+
 
 static const char *TAG = "main";
 
@@ -45,19 +51,71 @@ static void print_system_info(void)
              heap_caps_get_total_size(MALLOC_CAP_SPIRAM) / 1024);
 }
 
+static void log_free_mem(const char *stage)
+{
+    ESP_LOGI(TAG, "[%s] internal: free %zu KB (largest DMA block %zu KB), PSRAM: free %zu KB",
+             stage,
+             heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024,
+             heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) / 1024,
+             heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
+}
+
+static void camera_test(void){
+     board_frame_t frame = {};
+    const int N_frames = 1000;
+    for(int i = 0; i < 100; ++i){
+        ESP_ERROR_CHECK(board_camera_get_frame(&frame));
+        board_camera_release_frame(&frame);
+    }
+    int32_t t0 = esp_timer_get_time();
+    for(int i = 0; i < 10; ++i){
+        ESP_ERROR_CHECK(board_camera_get_frame(&frame));
+        board_camera_release_frame(&frame);
+    }
+    int64_t t1 = esp_timer_get_time();
+    float fps = 10 * 1e6f / (t1 - t0);
+    
+    int64_t end = esp_timer_get_time() + 30 * 1000000;
+    int64_t next_log = 0;
+    while(esp_timer_get_time() < end){
+        ESP_ERROR_CHECK(board_camera_get_frame(&frame));
+        if(frame.len != 320*240*2) ESP_LOGW(TAG,"len size not right");
+        if(esp_timer_get_time() > next_log){
+            int64_t sum = 0;
+            for(size_t j = 0; j < frame.len; ++j){
+                sum += frame.data[j];
+            }
+            unsigned cp = sum / frame.len;
+            ESP_LOGI(TAG,"brightness: %u", cp);
+            next_log = esp_timer_get_time() + 1000000;
+        }
+
+
+        board_camera_release_frame(&frame);
+
+    }
+
+    
+    ESP_LOGI(TAG,"fps: %.1f",fps);
+}
+
 extern "C" void app_main(void)
 {
-    print_system_info();
+    // print_system_info();
 
     ESP_ERROR_CHECK(board_init());
     ESP_ERROR_CHECK(mlx_init());
     ESP_ERROR_CHECK(thermal_init());
     ESP_ERROR_CHECK(ui_init());
+
     ESP_ERROR_CHECK(board_camera_init());
-    board_frame_t frame;
-    ESP_ERROR_CHECK(board_camera_get_frame(&frame));
-    ESP_LOGI(TAG,"HEIGHT: %d\n",frame.height);
-    ESP_LOGI(TAG,"WIDTH: %d\n",frame.width);
-    ESP_LOGI(TAG,"LENGTH: %d\n",frame.len);
-    board_camera_release_frame(&frame);
+
+
+   
+
+
+   #if RUN_CAMERA_TEST
+   camera_test_run();
+   #endif
+
 }
