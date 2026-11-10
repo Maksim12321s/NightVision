@@ -54,4 +54,10 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(thermal_init());
     ESP_ERROR_CHECK(ui_init());
     ESP_ERROR_CHECK(board_camera_init());
+    board_frame_t frame;
+    ESP_ERROR_CHECK(board_camera_get_frame(&frame));
+    ESP_LOGI(TAG,"HEIGHT: %d\n",frame.height);
+    ESP_LOGI(TAG,"WIDTH: %d\n",frame.width);
+    ESP_LOGI(TAG,"LENGTH: %d\n",frame.len);
+    board_camera_release_frame(&frame);
 }

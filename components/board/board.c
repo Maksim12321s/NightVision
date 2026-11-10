@@ -79,3 +79,28 @@ esp_err_t board_camera_init(void){
     return ESP_OK;
 }
 
+//максимум 2 кадра одновременно
+//перед использованием следующего нужно освободить предыдущие 2
+
+esp_err_t board_camera_get_frame(board_frame_t *frame){
+    if(frame == NULL) return ESP_ERR_INVALID_ARG;
+    camera_fb_t* fb = esp_camera_fb_get();
+    if(fb == NULL) return ESP_ERR_TIMEOUT;
+    if(fb->format != PIXFORMAT_RGB565) return ESP_ERR_INVALID_RESPONSE;
+    frame->data = fb->buf;
+    frame->height = fb->height;
+    frame->width = fb->width;
+    frame->len = fb->len;
+    frame->handle = fb;
+    return ESP_OK;
+
+}
+
+//после освобождения кадром пользоваться нельзя, туда будет загружен следующий
+void board_camera_release_frame(board_frame_t *frame){
+    if(frame == NULL) return;
+    esp_camera_fb_return(frame->handle);
+    frame->data = NULL;
+    frame = NULL;
+
+}
