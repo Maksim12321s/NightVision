@@ -38,12 +38,12 @@ static esp_err_t camera_sensor_setup(void){
     uint16_t pid = s->id.PID;
     ESP_LOGI(TAG,"PID: 0x%04x", pid);
     if(pid != OV3660_PID) {
-        ESP_LOGW(TAG,"camera not OV3660 PID=0x%04x");
+        ESP_LOGW(TAG,"camera not OV3660 PID=0x%04x",pid);
         return ESP_OK;
     }
-    if(s->set_vflip(s,1) != 0) ESP_LOGW(TAG, "vflip error in settings PID=0x%04x, OV3660 settings skipped", s->id.PID);
-    if(s->set_brightness(s,1) != 0) ESP_LOGW(TAG, "brightness error in settings PID=0x%04x, OV3660 settings skipped", s->id.PID);
-    if(s->set_saturation(s,-2) != 0) ESP_LOGW(TAG, "saturation error in settings PID=0x%04x, OV3660 settings skipped", s->id.PID);
+    if(s->set_vflip(s,1) != 0) ESP_LOGW(TAG, "vflip error in settings PID=0x%04x, OV3660 settings skipped", pid);
+    if(s->set_brightness(s,1) != 0) ESP_LOGW(TAG, "brightness error in settings PID=0x%04x, OV3660 settings skipped", pid);
+    if(s->set_saturation(s,-2) != 0) ESP_LOGW(TAG, "saturation error in settings PID=0x%04x, OV3660 settings skipped", pid);
     return ESP_OK;
 
 }
