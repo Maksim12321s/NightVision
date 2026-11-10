@@ -202,13 +202,15 @@ esp_err_t board_display_init(void){
 
 esp_err_t board_display_fill(uint16_t color){
     
-       uint16_t c = (color >> 8) | (color << 8);   // переставить байты
-   for (int i = 0; i < LCD_H_RES * LCD_STRIP_LINES; ++i) {
-    s_strip_buf[i] = c;
-      for (int y = 0; y < LCD_V_RES; y += LCD_STRIP_LINES) {
-       ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(s_panel, 0, y, LCD_H_RES, y + LCD_STRIP_LINES, s_strip_buf),
-                           TAG, "draw failed");
-       xSemaphoreTake(s_trans_done, portMAX_DELAY);   // ждём, пока DMA отправит полосу
-   }
-   return ESP_OK;
+    uint16_t c = (color >> 8) | (color << 8);   // переставить байты
+    for (int i = 0; i < LCD_H_RES * LCD_STRIP_LINES; ++i) {
+        s_strip_buf[i] = c;
+        
+    }
+    for (int y = 0; y < LCD_V_RES; y += LCD_STRIP_LINES) {
+            ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(s_panel, 0, y, LCD_H_RES, y + LCD_STRIP_LINES, s_strip_buf),
+                                TAG, "draw failed");
+            xSemaphoreTake(s_trans_done, portMAX_DELAY);
+        }
+    return ESP_OK;
 }
