@@ -16,7 +16,7 @@
 #include "ui.h"
 
 #define RUN_CAMERA_TEST 0
-
+#define RUN_LCD_TEST 0
 
 static const char *TAG = "main";
 
@@ -102,6 +102,20 @@ static void camera_test(void){
 }
 #endif
 
+#if RUN_LCD_TEST
+static void test_lcd(){
+    const int N = 20;
+    int64_t t0 = esp_timer_get_time();
+    for (int i = 0; i < N; ++i) {
+        ESP_ERROR_CHECK(board_display_fill(i % 2 ? 0xF800 : 0x001F));   
+    }
+    int64_t t1 = esp_timer_get_time();
+    float ms = (t1 - t0) / 1000.0f / N;
+    ESP_LOGI(TAG, "frame: %.1f ms, %.1f fps", ms, 1000.0f / ms);
+}
+#endif
+
+
 extern "C" void app_main(void)
 {
     // print_system_info();
@@ -120,10 +134,19 @@ extern "C" void app_main(void)
     camera_test_run();
     #endif
 
+
+    #if RUN_LCD_TEST
+    esp_log_level_set("spi_master", ESP_LOG_DEBUG);
+    #endif
     ESP_ERROR_CHECK(board_display_init());
-    board_display_fill(0xF800); vTaskDelay(pdMS_TO_TICKS(1000));   // красный
-    board_display_fill(0x07E0); vTaskDelay(pdMS_TO_TICKS(1000));   // зелёный
-    board_display_fill(0x001F); vTaskDelay(pdMS_TO_TICKS(1000));   // синий
-    board_display_fill(0x0000);                                     // чёрный
-    board_display_rect(0, 0, 40, 40, 0xFFFF);                       // белый квадрат
+    #if RUN_LCD_TEST
+    esp_log_level_set("spi_master", ESP_LOG_INFO);
+    test_lcd();
+    #endif
+    board_frame_t frame = {};
+    while(1){
+        ESP_ERROR_CHECK(board_camera_get_frame(&frame));
+        ESP_ERROR_CHECK(board_display_frame(&frame));
+        board_camera_release_frame(&frame);
+    }
 }

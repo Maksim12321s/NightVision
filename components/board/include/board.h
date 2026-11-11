@@ -25,7 +25,7 @@ void board_camera_release_frame(board_frame_t *frame);
 esp_err_t board_display_init(void);
 esp_err_t board_display_fill(uint16_t color);
 esp_err_t board_display_rect(int x, int y,int w,int h,uint16_t color);
-
+esp_err_t board_display_frame(const board_frame_t *frame);
 #ifdef __cplusplus
 }
 #endif

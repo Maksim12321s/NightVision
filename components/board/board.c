@@ -47,7 +47,7 @@ static const char *TAG = "BOARD";
 #define LCD_V_RES        240     // высота экрана
 #define LCD_STRIP_LINES  40      // высота одной полосы в строках
 
-#define LCD_PIXEL_CLOCK_HZ  (10 * 1000 * 1000)
+#define LCD_PIXEL_CLOCK_HZ  (40 * 1000 * 1000)
 //======================
 
 static esp_lcd_panel_handle_t s_panel = NULL;
@@ -228,4 +228,19 @@ esp_err_t board_display_rect(int x, int y,int w,int h,uint16_t color){
     xSemaphoreTake(s_trans_done, portMAX_DELAY);
     return ESP_OK;
     
+}
+
+esp_err_t board_display_frame(const board_frame_t *frame){
+    if(s_panel == NULL || s_strip_buf == NULL) return ESP_ERR_INVALID_STATE;
+    if(frame == NULL) return ESP_ERR_INVALID_ARG;
+    if(frame->width != LCD_H_RES || frame->height != LCD_V_RES) return ESP_ERR_INVALID_SIZE;
+
+    const size_t strip_bytes = LCD_H_RES * LCD_STRIP_LINES * 2;
+    for (int y = 0; y < LCD_V_RES; y += LCD_STRIP_LINES) {
+            memcpy(s_strip_buf,frame->data + y*LCD_H_RES*2,strip_bytes);
+            ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(s_panel, 0, y, LCD_H_RES, y + LCD_STRIP_LINES, s_strip_buf),
+                        TAG,"frame draw failed");
+            xSemaphoreTake(s_trans_done, portMAX_DELAY);
+    }
+    return ESP_OK;
 }
