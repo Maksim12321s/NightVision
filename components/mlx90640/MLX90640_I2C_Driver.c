@@ -51,7 +51,7 @@ int  MLX90640_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress, uint16_t data){
     if(err != ESP_OK) return -MLX90640_I2C_NACK_ERROR;
 
     uint16_t check;
-    int e = MLX90640_I2CRead(slaveAddr,writeAddress,sizeof(writeAddress),&check);
+    int e = MLX90640_I2CRead(slaveAddr,writeAddress,1,&check);
     if(e != 0) return e;
     if(check != data) return -MLX90640_I2C_WRITE_ERROR;
 
