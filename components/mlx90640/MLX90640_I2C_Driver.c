@@ -8,6 +8,7 @@
 #include "driver/i2c_types.h"
 #include "MLX90640_I2C_Driver.h"
 #include "mlx90640_i2c.h"
+#include "MLX90640_API.h"
 
 static const char *TAG = "MLX_I2C_DRIVER";
 static i2c_master_dev_handle_t s_dev = NULL;
@@ -22,14 +23,19 @@ esp_err_t mlx90640_i2c_attach(i2c_master_bus_handle_t bus, uint8_t addr, uint32_
     };
     ESP_RETURN_ON_ERROR(i2c_master_bus_add_device(bus,&dev_cfg,&s_dev),
                         TAG,"mlx adding failed");
+    
+    MLX90640_GetRefreshRate(addr);
+    MLX90640_GetCurResolution(addr);
+    MLX90640_GetCurMode(addr);
 
     return ESP_OK;
 }
 
 int  MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress, uint16_t nMemAddressRead, uint16_t *data){
 
-    esp_err_t err = i2c_master_transmit_receive(s_dev,startAddress, sizeof(startAddress), (uint8_t* )data, 2 * nMemAddressRead, 200);
-    if(err != ESP_OK) return -1;
+    uint8_t addr = {startAddress >> 8, startAddress & 0xFF};
+    esp_err_t err = i2c_master_transmit_receive(s_dev,&startAddress, sizeof(startAddress), (uint8_t* )data, 2 * nMemAddressRead, 200);
+    if(err != ESP_OK) return -MLX90640_I2C_NACK_ERROR;
     for(int i = 0; i < nMemAddressRead; ++i){
         data[i] = __builtin_bswap16(data[i]);
     }
@@ -46,7 +52,12 @@ int  MLX90640_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress, uint16_t data){
         data & 0xFF
     };
     esp_err_t err = i2c_master_transmit(s_dev,buff,sizeof(buff),100);
+    if(err != ESP_OK) return -MLX90640_I2C_NACK_ERROR;
 
+    uint16_t check;
+    int e = MLX90640_I2CRead(s_dev,&writeAddress,sizeof(writeAddress),&check);
+    if(e != 0) return e;
+    if(check != data) return -MLX90640_I2C_WRITE_ERROR;
 
     return 0;
 }
