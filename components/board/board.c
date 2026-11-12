@@ -11,6 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+
 static const char *TAG = "BOARD";
 
 //======================
@@ -50,9 +51,18 @@ static const char *TAG = "BOARD";
 #define LCD_PIXEL_CLOCK_HZ  (40 * 1000 * 1000)
 //======================
 
+
+//======================
+//MLX I2C PINS
+//======================
+#define THERMAL_I2C_PIN_SDA      47 
+#define THERMAL_I2C_PIN_SCL      48
+#define THERMAL_I2C_PIN_PORT     I2C_NUM_0
+
 static esp_lcd_panel_handle_t s_panel = NULL;
 static SemaphoreHandle_t s_trans_done = NULL;
 static uint16_t *s_strip_buf;
+static i2c_master_bus_handle_t s_i2c_bus = NULL;
 
 
 
@@ -72,6 +82,7 @@ static esp_err_t camera_sensor_setup(void){
     if(s->set_vflip(s,1) != 0) ESP_LOGW(TAG, "vflip error in settings PID=0x%04x, OV3660 settings skipped", pid);
     if(s->set_brightness(s,1) != 0) ESP_LOGW(TAG, "brightness error in settings PID=0x%04x, OV3660 settings skipped", pid);
     if(s->set_saturation(s,-2) != 0) ESP_LOGW(TAG, "saturation error in settings PID=0x%04x, OV3660 settings skipped", pid);
+    s->set_hmirror(s,1);
     return ESP_OK;
 
 }
@@ -242,5 +253,20 @@ esp_err_t board_display_frame(const board_frame_t *frame){
                         TAG,"frame draw failed");
             xSemaphoreTake(s_trans_done, portMAX_DELAY);
     }
+    return ESP_OK;
+}
+
+esp_err_t board_i2c_bus_init(i2c_master_bus_handle_t* bus){
+    i2c_master_bus_config_t i2c_cfg = {
+        .scl_io_num = THERMAL_I2C_PIN_SCL,
+        .sda_io_num = THERMAL_I2C_PIN_SDA,
+        .i2c_port = THERMAL_I2C_PIN_PORT,
+        .clk_source = I2C_CLK_SRC_DEFAULT,
+        .glitch_ignore_cnt = 7,
+        .flags.enable_internal_pullup = true,
+    };
+    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&i2c_cfg,&s_i2c_bus),
+                        TAG, "master i2c bus init failed");
+
     return ESP_OK;
 }

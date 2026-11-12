@@ -1,6 +1,6 @@
 #pragma once
 #include "esp_err.h"
-
+#include "driver/i2c_master.h"
 
 typedef struct {
     const uint8_t *data;   // пиксели RGB565, 2 байта на пиксель
@@ -26,6 +26,9 @@ esp_err_t board_display_init(void);
 esp_err_t board_display_fill(uint16_t color);
 esp_err_t board_display_rect(int x, int y,int w,int h,uint16_t color);
 esp_err_t board_display_frame(const board_frame_t *frame);
+
+esp_err_t board_i2c_bus_init(i2c_master_bus_handle_t* bus);
+
 #ifdef __cplusplus
 }
 #endif
