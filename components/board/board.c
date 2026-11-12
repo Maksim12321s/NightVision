@@ -55,8 +55,8 @@ static const char *TAG = "BOARD";
 //======================
 //MLX I2C PINS
 //======================
-#define THERMAL_I2C_PIN_SDA      47 
-#define THERMAL_I2C_PIN_SCL      48
+#define THERMAL_I2C_PIN_SDA      48
+#define THERMAL_I2C_PIN_SCL      47
 #define THERMAL_I2C_PIN_PORT     I2C_NUM_0
 
 static esp_lcd_panel_handle_t s_panel = NULL;
@@ -257,6 +257,7 @@ esp_err_t board_display_frame(const board_frame_t *frame){
 }
 
 esp_err_t board_i2c_bus_init(i2c_master_bus_handle_t* bus){
+    if(s_i2c_bus != NULL) return ESP_ERR_INVALID_ARG; 
     i2c_master_bus_config_t i2c_cfg = {
         .scl_io_num = THERMAL_I2C_PIN_SCL,
         .sda_io_num = THERMAL_I2C_PIN_SDA,
@@ -267,6 +268,6 @@ esp_err_t board_i2c_bus_init(i2c_master_bus_handle_t* bus){
     };
     ESP_RETURN_ON_ERROR(i2c_new_master_bus(&i2c_cfg,&s_i2c_bus),
                         TAG, "master i2c bus init failed");
-
+    *bus = s_i2c_bus;
     return ESP_OK;
 }
