@@ -121,7 +121,7 @@ extern "C" void app_main(void)
     // print_system_info();
 
     ESP_ERROR_CHECK(board_init());
-    ESP_ERROR_CHECK(mlx_init());
+    
     ESP_ERROR_CHECK(thermal_init());
     ESP_ERROR_CHECK(ui_init());
 
@@ -143,10 +143,13 @@ extern "C" void app_main(void)
     esp_log_level_set("spi_master", ESP_LOG_INFO);
     test_lcd();
     #endif
-    board_frame_t frame = {};
-    while(1){
-        ESP_ERROR_CHECK(board_camera_get_frame(&frame));
-        ESP_ERROR_CHECK(board_display_frame(&frame));
-        board_camera_release_frame(&frame);
-    }
+    // board_frame_t frame = {};
+    // while(1){
+    //     ESP_ERROR_CHECK(board_camera_get_frame(&frame));
+    //     ESP_ERROR_CHECK(board_display_frame(&frame));
+    //     board_camera_release_frame(&frame);
+    // }
+    i2c_master_bus_handle_t bus = {};
+    ESP_ERROR_CHECK(board_i2c_bus_init(&bus));
+    ESP_ERROR_CHECK(mlx_init(bus));
 }
