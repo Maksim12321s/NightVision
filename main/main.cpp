@@ -218,5 +218,6 @@ extern "C" void app_main(void)
         thermal_render(temps,thermal_buf,LCD_H_RES,LCD_V_RES,&range);
         frame = make_frame(thermal_buf,LCD_H_RES,LCD_V_RES);
         board_display_frame(&frame);
+        ESP_LOGI(TAG, "Ta=%.1f palette %.1f … %.1f °C", ta, range.min, range.max);
     }
 }

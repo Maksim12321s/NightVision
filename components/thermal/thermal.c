@@ -12,10 +12,13 @@ static uint16_t s_lut_gray[256];
 static uint16_t s_lut_iron[256];
 static uint16_t* s_lut;
 static const char *TAG = "THERMAL";
+
+static bool s_have_range = false;
+static float s_min, s_max;
+
 typedef struct { uint8_t pos, r, g, b; } stop_t;
 
-static uint8_t s_row[320];
-
+static uint16_t s_row[320];
 static const stop_t GRAY[] = { {0, 0, 0, 0}, {255, 255, 255, 255} };
 
 static const stop_t IRON[] = {          // примерно, подправь на глаз
@@ -56,7 +59,7 @@ void thermal_set_palette(thermal_palette_t p){
 }
 
 esp_err_t thermal_render(const float* temps, uint16_t* dst, int w, int h, thermal_range_t* range_out){
-    float max,min;
+    float max = temps[0],min = temps[0];
    
     for(int i = 0; i < 32*24; i++){
         max = (max < temps[i])?temps[i]: max;
@@ -71,13 +74,19 @@ esp_err_t thermal_render(const float* temps, uint16_t* dst, int w, int h, therma
         range_out->max = max;
         range_out->min = min;
     }
-    float k = 255 / (max - min);
+
+    if (s_have_range) {
+        min = 0.8f * s_min + 0.2f * min;
+        max = 0.8f * s_max + 0.2f * max;
+    }
+    s_min = min; s_max = max; s_have_range = true;
+    float k = 255 / (s_max - s_min);
 
     for(int r = 0; r < 24; r++){
         int sr = THERMAL_FLIP_V ? 23 - r : r; 
         for(int c = 0; c < 32; c++){
             int sc = THERMAL_FLIP_H ? 31 - c : c;
-            int idx = (int)((temps[sr * 32 + sc] - min) * k);
+            int idx = (int)((temps[sr * 32 + sc] - s_min) * k);
             if(idx < 0) idx = 0; else if (idx > 255) idx = 255;
             for(int x = 0; x < 10; x++) s_row[c*10 + x] = s_lut[idx]; //расширение 1 пикселя на 10 на 10
         }
