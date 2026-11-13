@@ -2,11 +2,19 @@
 #include "esp_check.h"
 #include "esp_log.h"
 
+
+
+#define THERMAL_MIN_SPAN 2.0f
+#define THERMAL_FLIP_V 1
+#define THERMAL_FLIP_H 1
+
 static uint16_t s_lut_gray[256];
 static uint16_t s_lut_iron[256];
 static uint16_t* s_lut;
 static const char *TAG = "THERMAL";
 typedef struct { uint8_t pos, r, g, b; } stop_t;
+
+static uint8_t s_row[320];
 
 static const stop_t GRAY[] = { {0, 0, 0, 0}, {255, 255, 255, 255} };
 
@@ -37,7 +45,7 @@ static void build_lut(const stop_t *st, int n, uint16_t *lut)
 esp_err_t thermal_init(void){
     build_lut(GRAY, sizeof(GRAY) / sizeof(GRAY[0]), s_lut_gray);
     build_lut(IRON, sizeof(IRON) / sizeof(IRON[0]), s_lut_iron);
-    s_lut = s_lut_gray;
+    s_lut = s_lut_iron;
     ESP_LOGI(TAG, "palettes ready");
     return ESP_OK;
 }
@@ -48,6 +56,32 @@ void thermal_set_palette(thermal_palette_t p){
 }
 
 esp_err_t thermal_render(const float* temps, uint16_t* dst, int w, int h, thermal_range_t* range_out){
+    float max,min;
+   
+    for(int i = 0; i < 32*24; i++){
+        max = (max < temps[i])?temps[i]: max;
+        min = (min > temps[i])?temps[i]: min;
+    }
+    if(max - min < 2.0f){
+        float c = (max + min) / 2;
+        min = c - THERMAL_MIN_SPAN / 2;
+        max = c + THERMAL_MIN_SPAN / 2;
+    }
+    if(range_out){
+        range_out->max = max;
+        range_out->min = min;
+    }
+    float k = 255 / (max - min);
 
+    for(int r = 0; r < 24; r++){
+        int sr = THERMAL_FLIP_V ? 23 - r : r; 
+        for(int c = 0; c < 32; c++){
+            int sc = THERMAL_FLIP_H ? 31 - c : c;
+            int idx = (int)((temps[sr * 32 + sc] - min) * k);
+            if(idx < 0) idx = 0; else if (idx > 255) idx = 255;
+            for(int x = 0; x < 10; x++) s_row[c*10 + x] = s_lut[idx]; //расширение 1 пикселя на 10 на 10
+        }
+        for(int y = 0; y < 10; y++) memcpy(&dst[(r * 10 + y)*w],s_row,sizeof(uint16_t) * w);
+    }
     return ESP_OK;
 }
