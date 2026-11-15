@@ -25,6 +25,11 @@ static uint16_t s_frame[834];        // одна подстраница: 768 + 6
 static float s_temps[768];       // температуры, °C
 static float s_ta;               // температура корпуса датчика, °C
 
+static float s_shared[768];
+static float s_shared_ta;
+static uint32_t s_seq = 0;
+static SemaphoreHandle_t s_lock;
+
 static paramsMLX90640 params = {};
 
 
@@ -83,4 +88,58 @@ esp_err_t mlx90640_read_frame(float *temps_out, float *ta_out){
     *ta_out = s_ta;
     return ESP_OK;
 }
+static esp_err_t mlx90640_read_frame_internal(void){
+    uint8_t got = 0;
+    for(int attempt = 0; attempt < 6 && got != 0x3; attempt++){
+        int sp = MLX90640_GetFrameData(MLX_ADDR, s_frame);
+        if(sp < 0){
+            ESP_LOGW(TAG, "GetFrameData: %d", sp);
+            continue; 
+        }
+        float ta = MLX90640_GetTa(s_frame, &params);
+        MLX90640_CalculateTo(s_frame, &params, MLX_EMISSIVITY, ta - MLX_TA_SHIFT, s_temps);
+        s_ta = ta;
+        got |= 1 << sp;  
+    }
+    return ESP_OK;
+}
+static void mlx_task(void){
+    while(1){
+        if(mlx90640_read_frame_internal() != ESP_OK) continue;
+        xSemaphoreTake(s_lock,portMAX_DELAY);
+        memcpy(s_shared,s_temps,sizeof(s_shared));
+        s_shared_ta = s_ta;
+        s_seq++;
+        xSemaphoreGive(s_lock);
+    }
+}
 
+esp_err_t mlx90640_start_task(UBaseType_t prio, BaseType_t core){
+    s_lock = xSemaphoreCreateMutex();
+    if(!s_lock) return ESP_ERR_NO_MEM;
+    BaseType_t ok = xTaskCreatePinnedToCore(
+        mlx_task,
+        "mlx",
+        8192,
+        NULL,
+        prio,
+        NULL,
+        core);
+    return (ok == pdPASS) ? ESP_OK : ESP_ERR_NO_MEM;
+}
+
+
+esp_err_t mlx90640_get_latest(float *temps_out, float *ta_out, uint32_t *seq_out){
+    if(temps_out == NULL) return ESP_ERR_INVALID_ARG;
+    if(ta_out == NULL) return ESP_ERR_INVALID_ARG;
+    xSemaphoreTake(s_lock,portMAX_DELAY);
+    uint32_t seq = s_seq;
+    if(seq != 0){
+        memcpy(temps_out,s_shared,sizeof(temps_out));
+        *ta_out = s_shared_ta;
+    }
+    xSemaphoreGive(s_lock);
+    *seq_out = seq;
+    if(seq_out) *seq_out = seq;
+    return seq ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
