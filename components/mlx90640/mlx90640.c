@@ -135,7 +135,7 @@ esp_err_t mlx90640_get_latest(float *temps_out, float *ta_out, uint32_t *seq_out
     xSemaphoreTake(s_lock,portMAX_DELAY);
     uint32_t seq = s_seq;
     if(seq != 0){
-        memcpy(temps_out,s_shared,sizeof(temps_out));
+        memcpy(temps_out,s_shared,sizeof(s_shared));
         *ta_out = s_shared_ta;
     }
     xSemaphoreGive(s_lock);
