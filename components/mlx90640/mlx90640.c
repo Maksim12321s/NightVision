@@ -88,6 +88,8 @@ esp_err_t mlx90640_read_frame(float *temps_out, float *ta_out){
     *ta_out = s_ta;
     return ESP_OK;
 }
+
+
 static esp_err_t mlx90640_read_frame_internal(void){
     uint8_t got = 0;
     for(int attempt = 0; attempt < 6 && got != 0x3; attempt++){
@@ -103,7 +105,9 @@ static esp_err_t mlx90640_read_frame_internal(void){
     }
     return ESP_OK;
 }
-static void mlx_task(void){
+
+
+static void mlx_task(void* arg){
     while(1){
         if(mlx90640_read_frame_internal() != ESP_OK) continue;
         xSemaphoreTake(s_lock,portMAX_DELAY);
@@ -132,6 +136,7 @@ esp_err_t mlx90640_start_task(UBaseType_t prio, BaseType_t core){
 esp_err_t mlx90640_get_latest(float *temps_out, float *ta_out, uint32_t *seq_out){
     if(temps_out == NULL) return ESP_ERR_INVALID_ARG;
     if(ta_out == NULL) return ESP_ERR_INVALID_ARG;
+    if(!s_lock) return ESP_ERR_NO_MEM;
     xSemaphoreTake(s_lock,portMAX_DELAY);
     uint32_t seq = s_seq;
     if(seq != 0){
@@ -139,7 +144,6 @@ esp_err_t mlx90640_get_latest(float *temps_out, float *ta_out, uint32_t *seq_out
         *ta_out = s_shared_ta;
     }
     xSemaphoreGive(s_lock);
-    *seq_out = seq;
     if(seq_out) *seq_out = seq;
     return seq ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
