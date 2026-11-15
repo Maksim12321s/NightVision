@@ -21,6 +21,8 @@ static const char *TAG = "THERMAL";
 static bool s_have_range = false;
 static float s_min, s_max;
 
+static int s_col_x0 = -1, s_col_tw = -1, s_col_w = -1;
+
 typedef struct { uint8_t pos, r, g, b; } stop_t;
 
 
@@ -42,6 +44,18 @@ static uint8_t s_col_i0[320], s_col_i1[320];
 static float   s_col_fx[320];
 static int     s_col_w = 0; 
 
+// static void build_col_table(int w)
+// {
+//     for (int X = 0; X < w; X++) {
+//         float u = (X + 0.5f) * 32.0f / w - 0.5f;
+//         if (u < 0) u = 0;
+//         int i0 = (int)u;
+//         s_col_i0[X] = i0;
+//         s_col_i1[X] = (i0 < 31) ? i0 + 1 : 31;
+//         s_col_fx[X] = u - i0;
+//     }
+//     s_col_w = w;
+// }
 static void build_col_table(int w)
 {
     for (int X = 0; X < w; X++) {
@@ -82,71 +96,88 @@ void thermal_set_palette(thermal_palette_t p){
     s_lut = (p == THERMAL_PALETTE_IRON) ? s_lut_iron : s_lut_gray;
 }
 
-esp_err_t thermal_render(const float* temps, uint16_t* dst, int w, int h, thermal_range_t* range_out){
-    float max = temps[0],min = temps[0];
-   
-    for(int i = 0; i < 32*24; i++){
-        max = (max < temps[i])?temps[i]: max;
-        min = (min > temps[i])?temps[i]: min;
+
+static float compute_range(const float *temps, thermal_range_t *range_out)
+{
+    float max = temps[0], min = temps[0];
+    for (int i = 1; i < 768; i++) {
+        if (temps[i] > max) max = temps[i];
+        if (temps[i] < min) min = temps[i];
     }
-    if(max - min < 2.0f){
+    if (max - min < THERMAL_MIN_SPAN) {
         float c = (max + min) / 2;
         min = c - THERMAL_MIN_SPAN / 2;
         max = c + THERMAL_MIN_SPAN / 2;
     }
-    if(range_out){
-        range_out->max = max;
-        range_out->min = min;
-    }
-
     if (s_have_range) {
         min = 0.8f * s_min + 0.2f * min;
         max = 0.8f * s_max + 0.2f * max;
     }
     s_min = min; s_max = max; s_have_range = true;
-    float k = 255 / (s_max - s_min);
 
-    for(int r = 0; r < 24; r++){
-        int sr = THERMAL_FLIP_V ? 23 - r : r; 
-        for(int c = 0; c < 32; c++){
+    if (range_out) { range_out->min = s_min; range_out->max = s_max; }
+    return 255.0f / (s_max - s_min);          // это k
+}
+
+static void fill_idx(const float *temps, float k)
+{
+    for (int r = 0; r < 24; r++) {
+        int sr = THERMAL_FLIP_V ? 23 - r : r;
+        for (int c = 0; c < 32; c++) {
             int sc = THERMAL_FLIP_H ? 31 - c : c;
-            float v = (int)((temps[sr * 32 + sc] - s_min) * k);
-            if(v < 0) v = 0; else if (v > 255) v = 255;
-            s_idx[r * 32 + c] = v; 
+            float v = (temps[sr * 32 + sc] - s_min) * k;
+            if (v < 0) v = 0; else if (v > 255) v = 255;
+            s_idx[r * 32 + c] = v;
         }
     }
+}
 
-    if (s_interp == THERMAL_INTERP_NEAREST) {
-        for (int Y = 0; Y < h; Y++) {
-            int r = Y * 24 / h;                       // какая тепловая строка
-            for (int X = 0; X < w; X++) {
-                int c = X * 32 / w;                   // какой тепловой столбец
-                s_row[X] = s_lut[(int)(s_idx[r * 32 + c] + 0.5f)];
-            }
-            memcpy(&dst[Y * w], s_row, w * sizeof(uint16_t));
+static void draw_nearest(uint16_t *dst, int w, int h)
+{
+    for (int Y = 0; Y < h; Y++) {
+        int r = Y * 24 / h;
+        for (int X = 0; X < w; X++) {
+            int c = X * 32 / w;
+            s_row[X] = s_lut[(int)(s_idx[r * 32 + c] + 0.5f)];
         }
-    } else {
-        if (s_col_w != w) build_col_table(w);
-        float rowv[32];
-        for(int y = 0; y < h; ++y){
-            float v = (y + 0.5f) * 24.0f / h - 0.5f;
-            if(v < 0) v = 0;
-            int j0 = (int)v;
-            int j1 = (j0 < 23) ? j0 + 1 : 23;
-            float fy = v - j0;
-
-            const float *a = &s_idx[j0 * 32];
-            const float *b = &s_idx[j1 * 32];
-            for (int c = 0; c < 32; c++) rowv[c] = a[c] + (b[c] - a[c]) * fy;
-            for(int x = 0; x < w; ++x){
-                float l = rowv[s_col_i0[x]];
-                float r = rowv[s_col_i1[x]];
-                float val = l + (r - l) * s_col_fx[x];
-                s_row[x] = s_lut[(int)(val + 0.5f)];
-            }
-            memcpy(&dst[y * w], s_row, w * sizeof(uint16_t));
-        }
+        memcpy(&dst[Y * w], s_row, w * sizeof(uint16_t));
     }
+}
+
+static void draw_bilinear(uint16_t *dst, int w, int h)
+{
+    if (s_col_w != w) build_col_table(w);
+
+    float rowv[32];
+    for (int Y = 0; Y < h; Y++) {
+        float v = (Y + 0.5f) * 24.0f / h - 0.5f;
+        if (v < 0) v = 0;
+        int j0 = (int)v;
+        int j1 = (j0 < 23) ? j0 + 1 : 23;
+        float fy = v - j0;
+
+        const float *a = &s_idx[j0 * 32];
+        const float *b = &s_idx[j1 * 32];
+        for (int c = 0; c < 32; c++)
+            rowv[c] = a[c] + (b[c] - a[c]) * fy;
+
+        for (int X = 0; X < w; X++) {
+            float l = rowv[s_col_i0[X]];
+            float r = rowv[s_col_i1[X]];
+            s_row[X] = s_lut[(int)(l + (r - l) * s_col_fx[X] + 0.5f)];
+        }
+        memcpy(&dst[Y * w], s_row, w * sizeof(uint16_t));
+    }
+}
+
+esp_err_t thermal_render(const float* temps, uint16_t* dst, int w, int h, thermal_range_t* range_out){
+    if (!temps || !dst) return ESP_ERR_INVALID_ARG;
+    if (w <= 0 || h <= 0 || w > 320 || h > 240) return ESP_ERR_INVALID_ARG;
+
+    float k = compute_range(temps, range_out);
+    fill_idx(temps, k);
+    if (s_interp == THERMAL_INTERP_BILINEAR) draw_bilinear(dst, w, h);
+    else                                     draw_nearest(dst, w, h);
     return ESP_OK;
 }
 
@@ -154,6 +185,63 @@ void thermal_set_interp(thermal_interp_t mode){
     s_interp = mode;
 }
 
+static inline uint16_t blend565(uint16_t cam_be, uint16_t th_be, int a)   // a = 0…256
+{
+    uint16_t c = __builtin_bswap16(cam_be);
+    uint16_t t = __builtin_bswap16(th_be);
+    int r = (((t >> 11) & 31) * a + ((c >> 11) & 31) * (256 - a)) >> 8;
+    int g = (((t >> 5)  & 63) * a + ((c >> 5)  & 63) * (256 - a)) >> 8;
+    int b = (( t        & 31) * a + ( c        & 31) * (256 - a)) >> 8;
+    return __builtin_bswap16((r << 11) | (g << 5) | b);
+}
+
 esp_err_t thermal_blend(const float *temps, const uint8_t *cam, uint16_t *dst, int w, int h, const thermal_overlay_t *ov, thermal_range_t *range_out){
+    if (!cam || !dst || !ov || ov->w <= 0 || ov->h <= 0) return ESP_ERR_INVALID_ARG;
+    if (w <= 0 || h <= 0 || w > 320 || h > 240)          return ESP_ERR_INVALID_ARG;
+
+    const uint16_t *cam16 = (const uint16_t *)cam;
+
+    if (!s_have_range || ov->alpha == 0) {                // тепла ещё нет / не нужно
+        memcpy(dst, cam, w * h * sizeof(uint16_t));
+        return ESP_OK;
+    }
+
+    int xs = ov->x < 0 ? 0 : ov->x;                       // первый столбец с теплом
+    int xe = ov->x + ov->w > w ? w : ov->x + ov->w;       // за последним
+    int ys = ov->y < 0 ? 0 : ov->y;
+    int ye = ov->y + ov->h > h ? h : ov->y + ov->h;
+    if (s_col_x0 != ov->x || s_col_tw != ov->w || s_col_w != w)
+        build_col_table(ov->x, ov->w, w);
+    int a = ov->alpha + (ov->alpha >> 7);
+
+    float rowv[32];
+    for (int Y = 0; Y < h; Y++) {
+        memcpy(s_row, &cam16[Y * w], w * sizeof(uint16_t));   // строка камеры
+
+        if (Y >= ys && Y < ye && xs < xe) {
+            float v = (Y - ov->y + 0.5f) * 24.0f / ov->h - 0.5f;
+            if (v < 0) v = 0;
+            int j0 = (int)v;  if (j0 > 23) j0 = 23;
+            int j1 = (j0 < 23) ? j0 + 1 : 23;
+            float fy = (j0 < 23) ? v - j0 : 0;
+
+            const float *pa = &s_idx[j0 * 32], *pb = &s_idx[j1 * 32];
+            for (int c = 0; c < 32; c++) rowv[c] = pa[c] + (pb[c] - pa[c]) * fy;
+
+            for (int X = xs; X < xe; X++) {
+                float l = rowv[s_col_i0[X]], r = rowv[s_col_i1[X]];
+                uint16_t th = s_lut[(int)(l + (r - l) * s_col_fx[X] + 0.5f)];
+                s_row[X] = blend565(s_row[X], th, a);
+            }
+        }
+        memcpy(&dst[Y * w], s_row, w * sizeof(uint16_t));
+    }
+    return ESP_OK;
+}
+
+esp_err_t thermal_update(const float *temps, thermal_range_t *range_out){
+    if (!temps) return ESP_ERR_INVALID_ARG;
+    float k = compute_range(temps, range_out);
+    fill_idx(temps, k);
     return ESP_OK;
 }
