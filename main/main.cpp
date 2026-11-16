@@ -182,11 +182,6 @@ extern "C" void app_main(void){
 
 
     #if RUN_LCD_TEST
-        esp_log_level_set("spi_master", ESP_LOG_DEBUG);
-    #endif
-        ESP_ERROR_CHECK(board_display_init());
-    #if RUN_LCD_TEST
-        esp_log_level_set("spi_master", ESP_LOG_INFO);
         test_lcd();
     #endif
 
@@ -203,24 +198,24 @@ extern "C" void app_main(void){
         return;
     }
     int c = 0;
-    int t0, t1,t2,t3,t4;
+    int64_t t0, t1,t2,t3,t4;
     esp_err_t err;
-    float delta0 = 0;
-    float delta1 = 0;
-    float delta2 = 0;
-    float delta3 = 0;
+    int64_t delta0 = 0;
+    int64_t delta1 = 0;
+    int64_t delta2 = 0;
+    int64_t delta3 = 0;
     while(1){
-
+        bool new_thermal = false;
         t0 = esp_timer_get_time();
-        if (mlx90640_get_latest(temps, &ta, &seq) == ESP_OK && seq != last_seq) {
+        if (s_mode != VIEW_OPTICAL && mlx90640_get_latest(temps, &ta, &seq) == ESP_OK && seq != last_seq) {
             last_seq = seq;
-            thermal_update(temps, &range);
-        }
+            new_thermal = true;
+        } 
         t1 = esp_timer_get_time();
+        if(s_mode == VIEW_THERMAL && !new_thermal) { vTaskDelay(1); continue; }
+        
+        if(s_mode != VIEW_THERMAL && board_camera_get_frame(&frame_cam) != ESP_OK) if(s_mode == VIEW_OPTICAL) continue;
 
-
-        err = board_camera_get_frame(&frame_cam);
-        if(err != ESP_OK) {ESP_LOGE(TAG,"cant get frame ovf: %s",esp_err_to_name(err)); continue;}
         t2 = esp_timer_get_time();
         
         switch(s_mode){
@@ -233,6 +228,8 @@ extern "C" void app_main(void){
                 frame = make_frame(thermal_buf,LCD_H_RES,LCD_V_RES);
                 break;
             case VIEW_OVERLAY:
+                err = thermal_update(temps, &range);
+                if(err != ESP_OK) {ESP_LOGE(TAG,"update error %s",esp_err_to_name(err)); break;}
                 err = thermal_blend(frame_cam.data, thermal_buf,LCD_H_RES, LCD_V_RES, &ov);
                 if(err != ESP_OK) {ESP_LOGE(TAG,"blending error %s",esp_err_to_name(err)); break;}
                 frame = make_frame(thermal_buf,LCD_H_RES,LCD_V_RES);
@@ -249,17 +246,21 @@ extern "C" void app_main(void){
         delta2 += (t3 - t2);
         delta3 += (t4 - t3);
 
+        c++;
         if(c == 50){
             ESP_LOGI(TAG,"get thermal frame ms: %f", delta0 / (1000.0 * c));
             ESP_LOGI(TAG,"get optical frame ms: %f", delta1 / (1000.0 * c));
             ESP_LOGI(TAG,"render frame ms: %f", delta2 / (1000.0 * c));
             ESP_LOGI(TAG,"send to display frame ms: %f", delta3 / (1000.0 * c));
             ESP_LOGI(TAG,"Total ms: %f", (delta0 + delta1 + delta2 + delta3) / (1000.0 * c));
-            ESP_LOGI(TAG,"Total FPS: %f", 1000*1000/(delta0 + delta1 + delta2 + delta3));
-
+            ESP_LOGI(TAG,"Total FPS: %f", c * 1000*1000/(delta0 + delta1 + delta2 + delta3));
+            delta0 = 0;
+            delta1 = 0;
+            delta2 = 0;
+            delta3 = 0;
             c = 0;
         }
-        c++;
+        
 
     }
 
