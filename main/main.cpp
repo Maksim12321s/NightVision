@@ -205,12 +205,16 @@ extern "C" void app_main(void){
     int c = 0;
     int t0, t1,t2,t3,t4;
     esp_err_t err;
+    float delta0 = 0;
+    float delta1 = 0;
+    float delta2 = 0;
+    float delta3 = 0;
     while(1){
 
         t0 = esp_timer_get_time();
         if (mlx90640_get_latest(temps, &ta, &seq) == ESP_OK && seq != last_seq) {
             last_seq = seq;
-            thermal_update(temps, &range);   // для THERMAL и OVERLAY
+            thermal_update(temps, &range);
         }
         t1 = esp_timer_get_time();
 
@@ -225,12 +229,12 @@ extern "C" void app_main(void){
                 break;
             case VIEW_THERMAL:
                 err = thermal_render(temps,thermal_buf,LCD_H_RES,LCD_V_RES,&range);
-                if(err != ESP_OK) {ESP_LOGE(TAG,"render error: %s",esp_err_to_name(err)); continue;}
+                if(err != ESP_OK) {ESP_LOGE(TAG,"render error: %s",esp_err_to_name(err)); break;}
                 frame = make_frame(thermal_buf,LCD_H_RES,LCD_V_RES);
                 break;
             case VIEW_OVERLAY:
                 err = thermal_blend(frame_cam.data, thermal_buf,LCD_H_RES, LCD_V_RES, &ov);
-                if(err != ESP_OK) {ESP_LOGE(TAG,"blending error %s",esp_err_to_name(err)); continue;}
+                if(err != ESP_OK) {ESP_LOGE(TAG,"blending error %s",esp_err_to_name(err)); break;}
                 frame = make_frame(thermal_buf,LCD_H_RES,LCD_V_RES);
                 break;
                 
@@ -240,26 +244,22 @@ extern "C" void app_main(void){
         if(err != ESP_OK) ESP_LOGE(TAG,"error with dispay frame: %s",esp_err_to_name(err));
         t4 = esp_timer_get_time();
         board_camera_release_frame(&frame_cam);
-
+        delta0 += (t1 - t0);
+        delta1 += (t2 - t1);
+        delta2 += (t3 - t2);
+        delta3 += (t4 - t3);
 
         if(c == 50){
-            float delta0 = t1 - t0;    
-            float delta1 = t2 - t1;
-            float delta2 = t3 - t2;
-            float delta3 = t4 - t3;
-            
-            ESP_LOGI(TAG,"get thermal frame ms: %f", delta0 / 1000.0);
-            ESP_LOGI(TAG,"get optical frame ms: %f", delta1 / 1000.0);
-            ESP_LOGI(TAG,"render frame ms: %f", delta2 / 1000.0);
-            ESP_LOGI(TAG,"send to display frame ms: %f", delta3 / 1000.0);
-            ESP_LOGI(TAG,"Total ms: %f", (delta0 + delta1 + delta2 + delta3) / 1000.0);
+            ESP_LOGI(TAG,"get thermal frame ms: %f", delta0 / (1000.0 * c));
+            ESP_LOGI(TAG,"get optical frame ms: %f", delta1 / (1000.0 * c));
+            ESP_LOGI(TAG,"render frame ms: %f", delta2 / (1000.0 * c));
+            ESP_LOGI(TAG,"send to display frame ms: %f", delta3 / (1000.0 * c));
+            ESP_LOGI(TAG,"Total ms: %f", (delta0 + delta1 + delta2 + delta3) / (1000.0 * c));
             ESP_LOGI(TAG,"Total FPS: %f", 1000*1000/(delta0 + delta1 + delta2 + delta3));
 
             c = 0;
         }
         c++;
-        
-
 
     }
 
