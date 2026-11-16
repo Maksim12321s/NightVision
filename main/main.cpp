@@ -19,7 +19,7 @@
 #define RUN_LCD_TEST 0
 #define RUN_MLX_TEST 0
 #define RUN_CAMERA_MODE 0
-#define RUN_THERMAL_MODE 1
+#define RUN_THERMAL_MODE 0
 
 #define LCD_H_RES        320     // ширина экрана в пикселях (в альбомной ориентации)
 #define LCD_V_RES        240     // высота экрана
@@ -181,7 +181,7 @@ void camera_mode(void){
 
 #if RUN_THERMAL_MODE
 void thermal_mode(void){
-    
+    thermal_set_interp(THERMAL_INTERP_NEAREST);
     uint16_t *thermal_buf = (uint16_t *)heap_caps_malloc(320 * 240 * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
     if (thermal_buf == NULL) {
         ESP_LOGE(TAG, "no PSRAM for thermal frame");
@@ -192,7 +192,10 @@ void thermal_mode(void){
     board_frame_t frame = {};
     while(1){
         mlx90640_read_frame(temps,&ta);
-        thermal_render(temps,thermal_buf,LCD_H_RES,LCD_V_RES,&range);
+        int64_t t0 = esp_timer_get_time();
+        thermal_render(temps, thermal_buf, LCD_H_RES, LCD_V_RES, &range);
+        int64_t t1 = esp_timer_get_time();
+        ESP_LOGI(TAG,"ms: %f",(t1-t0)/1000.0);
         frame = make_frame(thermal_buf,LCD_H_RES,LCD_V_RES);
         board_display_frame(&frame);
         ESP_LOGI(TAG, "Ta=%.1f palette %.1f … %.1f °C", ta, range.min, range.max);
@@ -208,6 +211,7 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(board_init());
     
     ESP_ERROR_CHECK(thermal_init());
+    thermal_set_interp(THERMAL_INTERP_BILINEAR);
     ESP_ERROR_CHECK(ui_init());
 
     #if RUN_CAMERA_TEST
@@ -233,6 +237,7 @@ extern "C" void app_main(void)
     i2c_master_bus_handle_t bus = {};
     ESP_ERROR_CHECK(board_i2c_bus_init(&bus));
     ESP_ERROR_CHECK(mlx_init(bus));
+    ESP_ERROR_CHECK(mlx90640_start_task(2, 1));
 
     #if RUN_MLX_TEST
     test_mlx();
@@ -245,4 +250,35 @@ extern "C" void app_main(void)
     #if RUN_THERMAL_MODE
     thermal_mode();
     #endif
+    thermal_overlay_t ov = { 0, 0, 320, 240, 128 };   // до калибровки — весь экран, 50 %
+    uint32_t seq, last_seq = 0;
+    thermal_set_interp(THERMAL_INTERP_NEAREST);
+    uint16_t *thermal_buf = (uint16_t *)heap_caps_malloc(320 * 240 * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (thermal_buf == NULL) {
+        ESP_LOGE(TAG, "no PSRAM for thermal frame");
+        return;
+    }
+    float ta;
+    thermal_range_t range;
+    board_frame_t frame = {};
+    thermal_set_interp(THERMAL_INTERP_BILINEAR);
+
+    while (1) {
+        if (mlx90640_get_latest(temps, &ta, &seq) == ESP_OK && seq != last_seq) {
+            last_seq = seq;
+            thermal_update(temps, &range);
+        }
+        if (board_camera_get_frame(&frame) != ESP_OK) {
+            ESP_LOGW(TAG, "camera frame timeout");
+            continue;
+        }
+        int64_t t0 = esp_timer_get_time();
+        thermal_blend(frame.data,thermal_buf, LCD_H_RES, LCD_V_RES, &ov);
+        int64_t t1 = esp_timer_get_time();
+        board_camera_release_frame(&frame);           // сразу, кадр камеры больше не нужен
+
+        board_frame_t out = make_frame(thermal_buf, LCD_H_RES, LCD_V_RES);
+        board_display_frame(&out);
+        // раз в 50 кадров: FPS и (t1 - t0) / 1000.0 мс
+    }
 }

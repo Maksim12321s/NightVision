@@ -103,7 +103,7 @@ static esp_err_t mlx90640_read_frame_internal(void){
         s_ta = ta;
         got |= 1 << sp;  
     }
-    return ESP_OK;
+    return got == 0x3 ? ESP_OK : ESP_ERR_TIMEOUT;
 }
 
 

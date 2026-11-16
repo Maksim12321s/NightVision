@@ -5,8 +5,8 @@
 
 
 #define THERMAL_MIN_SPAN 2.0f
-#define THERMAL_FLIP_V 1
-#define THERMAL_FLIP_H 1
+#define THERMAL_FLIP_V 0
+#define THERMAL_FLIP_H 0
 
 static uint16_t s_lut_gray[256];
 static uint16_t s_lut_iron[256];
@@ -42,31 +42,19 @@ static const stop_t IRON[] = {          // примерно, подправь н
 
 static uint8_t s_col_i0[320], s_col_i1[320];
 static float   s_col_fx[320];
-static int     s_col_w = 0; 
 
-// static void build_col_table(int w)
-// {
-//     for (int X = 0; X < w; X++) {
-//         float u = (X + 0.5f) * 32.0f / w - 0.5f;
-//         if (u < 0) u = 0;
-//         int i0 = (int)u;
-//         s_col_i0[X] = i0;
-//         s_col_i1[X] = (i0 < 31) ? i0 + 1 : 31;
-//         s_col_fx[X] = u - i0;
-//     }
-//     s_col_w = w;
-// }
-static void build_col_table(int w)
+static void build_col_table(int x0, int tw, int w)
 {
     for (int X = 0; X < w; X++) {
-        float u = (X + 0.5f) * 32.0f / w - 0.5f;
+        float u = (X - x0 + 0.5f) * 32.0f / tw - 0.5f;
         if (u < 0) u = 0;
         int i0 = (int)u;
+        if (i0 > 31) i0 = 31;
         s_col_i0[X] = i0;
         s_col_i1[X] = (i0 < 31) ? i0 + 1 : 31;
-        s_col_fx[X] = u - i0;
+        s_col_fx[X] = (i0 < 31) ? u - i0 : 0;
     }
-    s_col_w = w;
+    s_col_x0 = x0; s_col_tw = tw; s_col_w = w;
 }
 
 static void build_lut(const stop_t *st, int n, uint16_t *lut)
@@ -146,7 +134,7 @@ static void draw_nearest(uint16_t *dst, int w, int h)
 
 static void draw_bilinear(uint16_t *dst, int w, int h)
 {
-    if (s_col_w != w) build_col_table(w);
+    if (s_col_x0 != 0 || s_col_tw != w || s_col_w != w) build_col_table(0, w, w);
 
     float rowv[32];
     for (int Y = 0; Y < h; Y++) {
@@ -195,7 +183,7 @@ static inline uint16_t blend565(uint16_t cam_be, uint16_t th_be, int a)   // a =
     return __builtin_bswap16((r << 11) | (g << 5) | b);
 }
 
-esp_err_t thermal_blend(const float *temps, const uint8_t *cam, uint16_t *dst, int w, int h, const thermal_overlay_t *ov, thermal_range_t *range_out){
+esp_err_t thermal_blend(const uint8_t *cam, uint16_t *dst, int w, int h, const thermal_overlay_t *ov){
     if (!cam || !dst || !ov || ov->w <= 0 || ov->h <= 0) return ESP_ERR_INVALID_ARG;
     if (w <= 0 || h <= 0 || w > 320 || h > 240)          return ESP_ERR_INVALID_ARG;
 
