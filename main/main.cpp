@@ -214,9 +214,6 @@ extern "C" void app_main(void){
     int64_t delta3 = 0;
     while(1){
 
-        #if RUN_OVERLAY_CALIB
-            calib_poll(&ov);
-        #endif
         bool new_thermal = false;
         t0 = esp_timer_get_time();
         if (s_mode != VIEW_OPTICAL && mlx90640_get_latest(temps, &ta, &seq) == ESP_OK && seq != last_seq) {
@@ -226,7 +223,7 @@ extern "C" void app_main(void){
         t1 = esp_timer_get_time();
         if(s_mode == VIEW_THERMAL && !new_thermal) { vTaskDelay(1); continue; }
 
-        if(s_mode == VIEW_OVERLAY && !new_thermal) thermal_update(temps,&range);
+        if(s_mode == VIEW_OVERLAY && new_thermal) thermal_update(temps,&range);
         
         if(s_mode != VIEW_THERMAL){
             err = board_camera_get_frame(&frame_cam);

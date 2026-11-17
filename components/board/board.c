@@ -48,7 +48,7 @@ static const char *TAG = "BOARD";
 #define LCD_V_RES        240     // высота экрана
 #define LCD_STRIP_LINES  40      // высота одной полосы в строках
 
-#define LCD_PIXEL_CLOCK_HZ  (40 * 1000 * 1000)
+#define LCD_PIXEL_CLOCK_HZ  (40 * (1000 * 1000))
 //======================
 
 

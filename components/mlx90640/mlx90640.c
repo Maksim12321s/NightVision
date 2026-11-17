@@ -12,7 +12,7 @@ static const char *TAG = "MLX";
 
 
 #define MLX_ADDR 0x33
-#define MLX_SCLK_HZ 400*1000
+#define MLX_SCLK_HZ 1 * (1000 * 1000)
 #define MLX_REFRESH_CODE  0x05
 
 #define MLX_EMISSIVITY   0.95f   // излучательная способность объекта (кожа, дерево, краска)
