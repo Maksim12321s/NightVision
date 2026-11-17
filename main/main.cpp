@@ -9,6 +9,9 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/usb_serial_jtag.h"
+#include <ctype.h>
+#include "driver/usb_serial_jtag_vfs.h"
 
 #include "board.h"
 #include "mlx90640.h"
@@ -22,12 +25,74 @@
 #define LCD_H_RES        320     // ширина экрана в пикселях (в альбомной ориентации)
 #define LCD_V_RES        240     // высота экрана
 
+
+#define RUN_OVERLAY_CALIB 1   // 0 — выключить подгонку клавишами
+
+#if RUN_OVERLAY_CALIB
+static const char *TAG_CAL = "CALIB";
+static bool s_calib_ok = false;
+
+// Драйвер USB-Serial-JTAG нужен, чтобы читать клавиши из idf.py monitor
+static void calib_init(void)
+{
+    usb_serial_jtag_driver_config_t cfg = {};
+    cfg.tx_buffer_size = 256;
+    cfg.rx_buffer_size = 256;
+
+    esp_err_t err = usb_serial_jtag_driver_install(&cfg);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG_CAL, "usb_serial_jtag_driver_install: %s, keys disabled",
+                 esp_err_to_name(err));
+        return;
+    }
+    s_calib_ok = true;
+    ESP_LOGI(TAG_CAL, "a/d - x, w/s - y, j/l - width, i/k - height, p - print; "
+                      "Shift = step x5");
+}
+
+// Читает все нажатые клавиши без ожидания и меняет ov.
+// Размер меняется симметрично, центр прямоугольника остаётся на месте.
+static void calib_poll(thermal_overlay_t *ov)
+{
+    
+    if (!s_calib_ok) {
+        return;
+    }
+
+    uint8_t c;
+    bool changed = false;
+
+    while (usb_serial_jtag_read_bytes(&c, 1, 0) == 1) {
+        ESP_LOGI(TAG_CAL, "key 0x%02X", c);
+        int k = isupper(c) ? 5 : 1;          // Shift — крупный шаг
+        switch (tolower(c)) {
+        case 'a': ov->x -= 2 * k; break;
+        case 'd': ov->x += 2 * k; break;
+        case 'w': ov->y -= 2 * k; break;
+        case 's': ov->y += 2 * k; break;
+        case 'j': if (ov->w > 40 + 4 * k)  { ov->w -= 4 * k; ov->x += 2 * k; } break;
+        case 'l': if (ov->w < 1000)        { ov->w += 4 * k; ov->x -= 2 * k; } break;
+        case 'i': if (ov->h > 30 + 4 * k)  { ov->h -= 4 * k; ov->y += 2 * k; } break;
+        case 'k': if (ov->h < 750)         { ov->h += 4 * k; ov->y -= 2 * k; } break;
+        case 'p': break;                     // только вывести
+        default:  continue;                  // остальные клавиши игнорируем
+        }
+        changed = true;
+    }
+
+    if (changed) {
+        ESP_LOGI(TAG_CAL, "ov = {%d, %d, %d, %d}", ov->x, ov->y, ov->w, ov->h);
+    }
+}
+#endif
+
+
 static const char *TAG = "main";
 static float temps[768];
 
 typedef enum{ VIEW_OPTICAL, VIEW_THERMAL, VIEW_OVERLAY }view_mode_t;
 #define VIEW_MODE VIEW_OVERLAY
-static view_mode_t s_mode = VIEW_MODE;
+static view_mode_t s_mode = VIEW_OVERLAY;
 
 static void print_system_info(void)
 {
@@ -185,12 +250,20 @@ extern "C" void app_main(void){
         test_lcd();
     #endif
 
+    thermal_set_interp(THERMAL_INTERP_BILINEAR);
+
+    #if RUN_OVERLAY_CALIB
+    
+        calib_init();
+        usb_serial_jtag_vfs_use_driver();
+    #endif
+
 
     float ta;
     thermal_range_t range;
     board_frame_t frame = {};
     board_frame_t frame_cam = {};
-    thermal_overlay_t ov = {0, 0, 320, 240, 128};
+    thermal_overlay_t ov = {15, 31, 290, 178, 128};
     uint32_t seq = 0, last_seq = 0;
     uint16_t *thermal_buf = (uint16_t *)heap_caps_malloc(320 * 240 * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
     if (thermal_buf == NULL) {
@@ -205,6 +278,10 @@ extern "C" void app_main(void){
     int64_t delta2 = 0;
     int64_t delta3 = 0;
     while(1){
+
+        #if RUN_OVERLAY_CALIB
+            calib_poll(&ov);
+        #endif
         bool new_thermal = false;
         t0 = esp_timer_get_time();
         if (s_mode != VIEW_OPTICAL && mlx90640_get_latest(temps, &ta, &seq) == ESP_OK && seq != last_seq) {
@@ -213,8 +290,16 @@ extern "C" void app_main(void){
         } 
         t1 = esp_timer_get_time();
         if(s_mode == VIEW_THERMAL && !new_thermal) { vTaskDelay(1); continue; }
+
+        if(s_mode == VIEW_OVERLAY && !new_thermal) thermal_update(temps,&range);
         
-        if(s_mode != VIEW_THERMAL && board_camera_get_frame(&frame_cam) != ESP_OK) if(s_mode == VIEW_OPTICAL) continue;
+        if(s_mode != VIEW_THERMAL){
+            err = board_camera_get_frame(&frame_cam);
+            if(err != ESP_OK){
+                ESP_LOGW(TAG, "camera: %s", esp_err_to_name(err));
+                continue;
+            }
+        } 
 
         t2 = esp_timer_get_time();
         
@@ -228,8 +313,7 @@ extern "C" void app_main(void){
                 frame = make_frame(thermal_buf,LCD_H_RES,LCD_V_RES);
                 break;
             case VIEW_OVERLAY:
-                err = thermal_update(temps, &range);
-                if(err != ESP_OK) {ESP_LOGE(TAG,"update error %s",esp_err_to_name(err)); break;}
+                
                 err = thermal_blend(frame_cam.data, thermal_buf,LCD_H_RES, LCD_V_RES, &ov);
                 if(err != ESP_OK) {ESP_LOGE(TAG,"blending error %s",esp_err_to_name(err)); break;}
                 frame = make_frame(thermal_buf,LCD_H_RES,LCD_V_RES);
@@ -248,12 +332,12 @@ extern "C" void app_main(void){
 
         c++;
         if(c == 50){
-            ESP_LOGI(TAG,"get thermal frame ms: %f", delta0 / (1000.0 * c));
-            ESP_LOGI(TAG,"get optical frame ms: %f", delta1 / (1000.0 * c));
-            ESP_LOGI(TAG,"render frame ms: %f", delta2 / (1000.0 * c));
-            ESP_LOGI(TAG,"send to display frame ms: %f", delta3 / (1000.0 * c));
-            ESP_LOGI(TAG,"Total ms: %f", (delta0 + delta1 + delta2 + delta3) / (1000.0 * c));
-            ESP_LOGI(TAG,"Total FPS: %f", c * 1000*1000/(delta0 + delta1 + delta2 + delta3));
+            ESP_LOGI(TAG,"get thermal frame ms: %f", (double)(delta0) / (1000.0 * c));
+            ESP_LOGI(TAG,"get optical frame ms: %f", (double)(delta1) / (1000.0 * c));
+            ESP_LOGI(TAG,"render frame ms: %f", (double)(delta2) / (1000.0 * c));
+            ESP_LOGI(TAG,"send to display frame ms: %f", (double)(delta3) / (1000.0 * c));
+            ESP_LOGI(TAG,"Total ms: %f", (double)(delta0 + delta1 + delta2 + delta3) / (1000.0 * c));
+            ESP_LOGI(TAG,"Total FPS: %f", c * 1000*1000/(double)(delta0 + delta1 + delta2 + delta3));
             delta0 = 0;
             delta1 = 0;
             delta2 = 0;
