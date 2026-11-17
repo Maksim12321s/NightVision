@@ -5,8 +5,8 @@
 
 
 #define THERMAL_MIN_SPAN 2.0f
-#define THERMAL_FLIP_V 0
-#define THERMAL_FLIP_H 0
+#define THERMAL_FLIP_V 1
+#define THERMAL_FLIP_H 1
 
 static uint16_t s_lut_gray[256];
 static uint16_t s_lut_iron[256];
